@@ -1,57 +1,53 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import Icon from '../components/Icon';
+import { Badge, EmptyState, ErrorNote, Field, Loading, Modal, PageHeader, SearchBox, useUi } from '../components/ui';
+import { casesLabel, inr } from '../utils/format';
 
 const emptyForm = {
   name: '', sku: '', brandCategory: '', packSize: '', unitsPerCase: 24,
   mrpPerUnit: 0, purchasePricePerCase: 0, sellingPricePerCase: 0, taxPercent: 0,
-  godownStockUnits: 0, lowStockThresholdUnits: 24
+  godownStockUnits: 0, lowStockThresholdUnits: 24,
 };
 
 export default function Products() {
-  const [products, setProducts] = useState([]);
+  const { toast, confirm } = useUi();
+  const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [category, setCategory] = useState('');
+  const [editing, setEditing] = useState(null); // null | 'new' | id
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  async function load() {
-    try {
-      setProducts(await api.getProducts(search, false, categoryFilter));
-    } catch (err) {
-      setError(err.message);
-    }
+  function load() {
+    api.getProducts(search, false, category)
+      .then(p => { setProducts(p); setError(''); })
+      .catch(err => { setError(err.message); setProducts([]); });
   }
+  useEffect(load, [search, category]);
+  useEffect(() => { api.getProductCategories().then(setCategories).catch(() => {}); }, [products?.length]);
 
-  useEffect(() => { load(); }, [search, categoryFilter]);
-  useEffect(() => { api.getProductCategories().then(setCategories).catch(() => {}); }, []);
+  const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
-  function update(field, value) {
-    setForm(f => ({ ...f, [field]: value }));
-  }
-
+  function startNew() { setForm(emptyForm); setFormError(''); setEditing('new'); }
   function startEdit(p) {
-    setEditingId(p.id);
     setForm({
       name: p.name, sku: p.sku || '', brandCategory: p.brandCategory || '', packSize: p.packSize || '',
       unitsPerCase: p.unitsPerCase, mrpPerUnit: p.mrpPerUnit, purchasePricePerCase: p.purchasePricePerCase,
       sellingPricePerCase: p.sellingPricePerCase, taxPercent: p.taxPercent,
-      godownStockUnits: p.godownStockUnits, lowStockThresholdUnits: p.lowStockThresholdUnits
+      godownStockUnits: p.godownStockUnits, lowStockThresholdUnits: p.lowStockThresholdUnits,
     });
-    setShowForm(true);
-  }
-
-  function startNew() {
-    setEditingId(null);
-    setForm(emptyForm);
-    setShowForm(true);
+    setFormError('');
+    setEditing(p.id);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError('');
+    setFormError('');
+    setSaving(true);
     try {
       const payload = {
         ...form,
@@ -63,136 +59,135 @@ export default function Products() {
         godownStockUnits: Number(form.godownStockUnits),
         lowStockThresholdUnits: Number(form.lowStockThresholdUnits),
       };
-      if (editingId) {
-        await api.updateProduct(editingId, payload);
-      } else {
-        await api.createProduct(payload);
-      }
-      setShowForm(false);
+      if (editing === 'new') await api.createProduct(payload);
+      else await api.updateProduct(editing, payload);
+      toast(editing === 'new' ? `${form.name} added.` : `${form.name} updated.`);
+      setEditing(null);
       load();
     } catch (err) {
-      setError(err.message);
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Remove this product?')) return;
+  async function handleDelete(p) {
+    const ok = await confirm({
+      title: `Remove ${p.name}?`,
+      message: 'It will no longer appear in lists. Past invoices keep their history.',
+      confirmLabel: 'Remove product',
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await api.deleteProduct(id);
+      await api.deleteProduct(p.id);
+      toast(`${p.name} removed.`);
       load();
     } catch (err) {
-      setError(err.message);
+      toast(err.message, { type: 'error' });
     }
   }
 
-  const casesInStock = (p) => (p.unitsPerCase > 0 ? (p.godownStockUnits / p.unitsPerCase).toFixed(1) : p.godownStockUnits);
+  const perUnit = Number(form.unitsPerCase) > 0 ? Number(form.sellingPricePerCase) / Number(form.unitsPerCase) : 0;
+  const margin = Number(form.sellingPricePerCase) - Number(form.purchasePricePerCase);
 
   return (
     <div>
-      <div className="page-header">
-        <h1>Products</h1>
-        <button onClick={startNew}>+ Add Product</button>
-      </div>
+      <PageHeader title="Products" subtitle="Your price list. Stock is counted in units and shown in cases.">
+        <button className="btn btn-primary" onClick={startNew}><Icon name="plus" /> Add product</button>
+      </PageHeader>
+      <ErrorNote onRetry={load}>{error}</ErrorNote>
 
-      {error && <div className="error-banner">{error}</div>}
-
-      <div className="form-row">
-        <input className="search-box" placeholder="Search by name or SKU…" value={search} onChange={e => setSearch(e.target.value)} />
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ maxWidth: 220 }}>
+      <div className="toolbar">
+        <SearchBox value={search} onChange={setSearch} placeholder="Search by name or SKU" />
+        <select value={category} onChange={e => setCategory(e.target.value)} aria-label="Category">
           <option value="">All categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th><th>Category</th><th>Pack</th><th>Units/Case</th>
-            <th>Case Price (sell)</th><th>MRP/Unit</th><th>Godown Stock</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {products.map(p => (
-            <tr key={p.id} className={p.godownStockUnits <= p.lowStockThresholdUnits ? 'row-warn' : ''}>
-              <td>{p.name}</td>
-              <td>{p.brandCategory}</td>
-              <td>{p.packSize}</td>
-              <td>{p.unitsPerCase}</td>
-              <td>₹{p.sellingPricePerCase.toFixed(2)}</td>
-              <td>₹{p.mrpPerUnit.toFixed(2)}</td>
-              <td>{p.godownStockUnits} units ({casesInStock(p)} cases)</td>
-              <td>
-                <button onClick={() => startEdit(p)}>Edit</button>
-                <button onClick={() => handleDelete(p.id)} className="btn-danger">Delete</button>
-              </td>
-            </tr>
-          ))}
-          {products.length === 0 && <tr><td colSpan={8}>No products yet.</td></tr>}
-        </tbody>
-      </table>
+      <div className="card card-flush">
+        {products === null ? <Loading /> : products.length === 0 ? (
+          <EmptyState icon="box" title={search || category ? 'No products match' : 'No products yet'}
+            action={!search && !category && <button className="btn btn-primary" onClick={startNew}>Add your first product</button>}>
+            {search || category ? 'Try a different search or category.' : 'Add the drinks you sell, with their case size and prices.'}
+          </EmptyState>
+        ) : (
+          <div className="table-wrap">
+            <table className="table responsive">
+              <thead>
+                <tr><th>Product</th><th>Category</th><th className="right">Units / case</th><th className="right">Sell price / case</th><th className="right">MRP / unit</th><th>In godown</th><th></th></tr>
+              </thead>
+              <tbody>
+                {products.map(p => {
+                  const low = p.godownStockUnits <= p.lowStockThresholdUnits;
+                  return (
+                    <tr key={p.id} className={low ? 'row-warn' : ''}>
+                      <td data-label="Product">
+                        <div className="cell-title">{p.name}</div>
+                        {(p.packSize || p.sku) && <div className="cell-sub">{[p.packSize, p.sku].filter(Boolean).join(' · ')}</div>}
+                      </td>
+                      <td data-label="Category">{p.brandCategory}</td>
+                      <td data-label="Units / case" className="num right">{p.unitsPerCase}</td>
+                      <td data-label="Sell price / case" className="num right">
+                        {p.sellingPricePerCase > 0 ? inr(p.sellingPricePerCase) : <Badge tone="bad">No price</Badge>}
+                      </td>
+                      <td data-label="MRP / unit" className="num right">{inr(p.mrpPerUnit)}</td>
+                      <td data-label="In godown">
+                        {casesLabel(p.godownStockUnits, p.unitsPerCase)} {low && <Badge tone="warn">Low</Badge>}
+                      </td>
+                      <td className="actions">
+                        <button className="btn btn-quiet btn-sm" onClick={() => startEdit(p)}>Edit</button>
+                        <button className="btn btn-ghost-danger btn-sm" onClick={() => handleDelete(p)}>Remove</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal-card" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h2>{editingId ? 'Edit Product' : 'Add Product'}</h2>
-            <label>Name</label>
-            <input value={form.name} onChange={e => update('name', e.target.value)} placeholder="e.g. 250 ml CSD Cock Zero" required />
-            <div className="form-row">
-              <div>
-                <label>Brand Category</label>
-                <input value={form.brandCategory} onChange={e => update('brandCategory', e.target.value)} placeholder="SODA, CSD PET, CAN…" />
-              </div>
-              <div>
-                <label>Pack Size</label>
-                <input value={form.packSize} onChange={e => update('packSize', e.target.value)} placeholder="250 ml" />
-              </div>
-            </div>
-            <label>SKU</label>
-            <input value={form.sku} onChange={e => update('sku', e.target.value)} />
-
-            <div className="form-row">
-              <div>
-                <label>Units per Case</label>
-                <input type="number" min="1" value={form.unitsPerCase} onChange={e => update('unitsPerCase', e.target.value)} required />
-              </div>
-              <div>
-                <label>MRP per Unit (₹)</label>
-                <input type="number" step="0.01" value={form.mrpPerUnit} onChange={e => update('mrpPerUnit', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div>
-                <label>Purchase Price / Case (₹)</label>
-                <input type="number" step="0.01" value={form.purchasePricePerCase} onChange={e => update('purchasePricePerCase', e.target.value)} />
-              </div>
-              <div>
-                <label>Selling Price / Case (₹)</label>
-                <input type="number" step="0.01" value={form.sellingPricePerCase} onChange={e => update('sellingPricePerCase', e.target.value)} required />
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div>
-                <label>Tax %</label>
-                <input type="number" step="0.01" value={form.taxPercent} onChange={e => update('taxPercent', e.target.value)} />
-              </div>
-              <div>
-                <label>Godown Stock (units)</label>
-                <input type="number" value={form.godownStockUnits} onChange={e => update('godownStockUnits', e.target.value)} />
-              </div>
-              <div>
-                <label>Low Stock Alert At (units)</label>
-                <input type="number" value={form.lowStockThresholdUnits} onChange={e => update('lowStockThresholdUnits', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowForm(false)}>Cancel</button>
-              <button type="submit">{editingId ? 'Save Changes' : 'Add Product'}</button>
-            </div>
-          </form>
-        </div>
+      {editing !== null && (
+        <Modal
+          as="form"
+          size="lg"
+          title={editing === 'new' ? 'Add product' : 'Edit product'}
+          onClose={() => setEditing(null)}
+          onSubmit={handleSubmit}
+          footer={
+            <>
+              <button type="button" className="btn btn-quiet" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : editing === 'new' ? 'Add product' : 'Save changes'}</button>
+            </>
+          }
+        >
+          <ErrorNote>{formError}</ErrorNote>
+          <Field label="Product name">
+            <input value={form.name} onChange={e => update('name', e.target.value)} placeholder="250 ml CSD Cock Zero" required />
+          </Field>
+          <div className="grid-3">
+            <Field label="Category"><input value={form.brandCategory} onChange={e => update('brandCategory', e.target.value)} placeholder="SODA, CSD PET, CAN" /></Field>
+            <Field label="Pack size"><input value={form.packSize} onChange={e => update('packSize', e.target.value)} placeholder="250 ml" /></Field>
+            <Field label="SKU (optional)"><input value={form.sku} onChange={e => update('sku', e.target.value)} /></Field>
+          </div>
+          <div className="grid-3">
+            <Field label="Units in one case"><input type="number" min="1" value={form.unitsPerCase} onChange={e => update('unitsPerCase', e.target.value)} required /></Field>
+            <Field label="Buying price per case (₹)"><input type="number" step="0.01" min="0" value={form.purchasePricePerCase} onChange={e => update('purchasePricePerCase', e.target.value)} /></Field>
+            <Field label="Selling price per case (₹)" hint={perUnit > 0 ? `${inr(perUnit)} per unit · ${margin >= 0 ? 'earns' : 'loses'} ${inr(Math.abs(margin))} per case` : 'Shops are billed at this price.'}>
+              <input type="number" step="0.01" min="0" value={form.sellingPricePerCase} onChange={e => update('sellingPricePerCase', e.target.value)} required />
+            </Field>
+          </div>
+          <div className="grid-3">
+            <Field label="MRP per unit (₹)"><input type="number" step="0.01" min="0" value={form.mrpPerUnit} onChange={e => update('mrpPerUnit', e.target.value)} /></Field>
+            <Field label="Tax (%)"><input type="number" step="0.01" min="0" value={form.taxPercent} onChange={e => update('taxPercent', e.target.value)} /></Field>
+            <Field label="Warn when godown has (units)"><input type="number" min="0" value={form.lowStockThresholdUnits} onChange={e => update('lowStockThresholdUnits', e.target.value)} /></Field>
+          </div>
+          <Field label="Godown stock now (units)" hint="Use Purchases to add stock. Edit this only to correct a count.">
+            <input type="number" min="0" value={form.godownStockUnits} onChange={e => update('godownStockUnits', e.target.value)} />
+          </Field>
+        </Modal>
       )}
     </div>
   );

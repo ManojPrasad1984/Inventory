@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import Navbar from './components/Navbar';
+import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -15,33 +15,29 @@ import ShopDetail from './pages/ShopDetail';
 import Sales from './pages/Sales';
 import SaleDetail from './pages/SaleDetail';
 
-function ProtectedRoute({ children }) {
+function Protected({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  return children;
+  return <Layout>{children}</Layout>;
 }
 
 export default function App() {
   return (
-    <>
-      <Navbar />
-      <main className="content">
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
-          <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
-          <Route path="/purchases" element={<ProtectedRoute><Purchases /></ProtectedRoute>} />
-          <Route path="/vehicles" element={<ProtectedRoute><Vehicles /></ProtectedRoute>} />
-          <Route path="/trips" element={<ProtectedRoute><Trips /></ProtectedRoute>} />
-          <Route path="/trips/:id" element={<ProtectedRoute><TripDetail /></ProtectedRoute>} />
-          <Route path="/shops" element={<ProtectedRoute><Shops /></ProtectedRoute>} />
-          <Route path="/shops/:id" element={<ProtectedRoute><ShopDetail /></ProtectedRoute>} />
-          <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
-          <Route path="/sales/:id" element={<ProtectedRoute><SaleDetail /></ProtectedRoute>} />
-        </Routes>
-      </main>
-    </>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/products" element={<Protected><Products /></Protected>} />
+      <Route path="/suppliers" element={<Protected><Suppliers /></Protected>} />
+      <Route path="/purchases" element={<Protected><Purchases /></Protected>} />
+      <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />
+      <Route path="/trips" element={<Protected><Trips /></Protected>} />
+      <Route path="/trips/:id" element={<Protected><TripDetail /></Protected>} />
+      <Route path="/shops" element={<Protected><Shops /></Protected>} />
+      <Route path="/shops/:id" element={<Protected><ShopDetail /></Protected>} />
+      <Route path="/sales" element={<Protected><Sales /></Protected>} />
+      <Route path="/sales/:id" element={<Protected><SaleDetail /></Protected>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

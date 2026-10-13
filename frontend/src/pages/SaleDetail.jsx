@@ -1,82 +1,137 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import Icon from '../components/Icon';
+import { Badge, ErrorNote, Field, Loading, PageHeader, statusTone, useUi } from '../components/ui';
+import { fmtDateTime, inr } from '../utils/format';
 
 export default function SaleDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast, confirm } = useUi();
   const [sale, setSale] = useState(null);
   const [error, setError] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
+  const [amount, setAmount] = useState('');
+  const [saving, setSaving] = useState(false);
 
   function load() {
+    setError('');
     api.getVehicleSale(id).then(setSale).catch(err => setError(err.message));
   }
+  useEffect(load, [id]);
 
-  useEffect(() => { load(); }, [id]);
-
-  async function handleRecordPayment() {
+  async function recordPayment(e) {
+    e.preventDefault();
+    setSaving(true);
     try {
-      await api.recordSalePayment(id, Number(paymentAmount));
-      setPaymentAmount('');
+      await api.recordSalePayment(id, Number(amount));
+      toast(`Payment of ${inr(Number(amount))} recorded.`);
+      setAmount('');
       load();
     } catch (err) {
-      setError(err.message);
+      toast(err.message, { type: 'error' });
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
-  if (!sale) return <p>Loading…</p>;
+  async function cancelSale() {
+    const ok = await confirm({
+      title: 'Cancel this invoice?',
+      message: 'The stock goes back on the vehicle and the shop balance is reduced. This cannot be undone.',
+      confirmLabel: 'Cancel invoice',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.cancelVehicleSale(id);
+      toast('Invoice cancelled and stock returned to the vehicle.');
+      navigate('/sales');
+    } catch (err) {
+      toast(err.message, { type: 'error' });
+    }
+  }
+
+  if (error && !sale) return <ErrorNote onRetry={load}>{error}</ErrorNote>;
+  if (!sale) return <Loading />;
 
   const balanceDue = sale.totalAmount - sale.amountPaid;
 
   return (
-    <div className="invoice-detail">
-      <div className="invoice-actions no-print">
-        <button onClick={() => window.print()}>Print / Save PDF</button>
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      <div className="no-print">
+        <PageHeader title={sale.invoiceNumber} back={{ to: '/sales', label: 'All sales' }}>
+          <button className="btn btn-quiet" onClick={() => window.print()}><Icon name="printer" /> Print</button>
+          {user.role === 'Owner' && (
+            <button className="btn btn-ghost-danger" onClick={cancelSale}>Cancel invoice</button>
+          )}
+        </PageHeader>
       </div>
 
-      <div className="invoice-paper">
-        <h1>Invoice {sale.invoiceNumber}</h1>
-        <p>Date: {new Date(sale.saleDate).toLocaleString()}</p>
-        <p>Vehicle: {sale.vehicle?.vehicleNumber}</p>
-        <p>Shop: {sale.shop?.name}</p>
-        {sale.shop?.phone && <p>Phone: {sale.shop.phone}</p>}
-
-        <table className="data-table">
-          <thead>
-            <tr><th>Item</th><th>Qty (units)</th><th>Unit Price</th><th>Tax %</th><th>Line Total</th></tr>
-          </thead>
-          <tbody>
-            {sale.items.map(item => (
-              <tr key={item.id}>
-                <td>{item.productName}</td>
-                <td>{item.quantityUnits}</td>
-                <td>₹{item.unitPrice.toFixed(2)}</td>
-                <td>{item.taxPercent}%</td>
-                <td>₹{item.lineTotal.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div className="totals">
-          <div><span>Subtotal</span><span>₹{sale.subTotal.toFixed(2)}</span></div>
-          <div><span>Tax</span><span>₹{sale.taxAmount.toFixed(2)}</span></div>
-          <div><span>Discount</span><span>₹{sale.discountAmount.toFixed(2)}</span></div>
-          <div className="totals-final"><span>Total</span><span>₹{sale.totalAmount.toFixed(2)}</span></div>
-          <div><span>Paid</span><span>₹{sale.amountPaid.toFixed(2)}</span></div>
-          <div><span>Balance Due</span><span>₹{balanceDue.toFixed(2)}</span></div>
+      <div className="invoice">
+        <div className="invoice-head">
+          <div>
+            <h1>Invoice</h1>
+            <div className="muted">{sale.invoiceNumber}</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="cell-title">{user.shopName || 'My Distribution'}</div>
+            <div className="muted">{fmtDateTime(sale.saleDate)}</div>
+          </div>
         </div>
 
-        <p>Payment Method: {sale.paymentMethod} &nbsp;|&nbsp; Status: <span className={`badge badge-${sale.paymentStatus.toLowerCase()}`}>{sale.paymentStatus}</span></p>
+        <div className="invoice-meta">
+          <div><div className="l">Billed to</div><div className="v">{sale.shop?.name}</div>{sale.shop?.phone && <div className="muted">{sale.shop.phone}</div>}</div>
+          <div><div className="l">Vehicle</div><div className="v">{sale.vehicle?.vehicleNumber}</div></div>
+        </div>
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Item</th><th className="right">Units</th><th className="right">Rate</th><th className="right">Tax</th><th className="right">Amount</th></tr></thead>
+            <tbody>
+              {sale.items.map(item => (
+                <tr key={item.id}>
+                  <td className="cell-title">{item.productName}</td>
+                  <td className="num right">{item.quantityUnits}</td>
+                  <td className="num right">{inr(item.unitPrice)}</td>
+                  <td className="num right">{item.taxPercent}%</td>
+                  <td className="num right strong">{inr(item.lineTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="invoice-totals">
+          <div className="sum"><span>Subtotal</span><span className="num">{inr(sale.subTotal)}</span></div>
+          <div className="sum"><span>Tax</span><span className="num">{inr(sale.taxAmount)}</span></div>
+          {sale.discountAmount > 0 && <div className="sum"><span>Discount</span><span className="num">− {inr(sale.discountAmount)}</span></div>}
+          <div className="sum-total"><span>Total</span><span className="amount num">{inr(sale.totalAmount)}</span></div>
+          <div className="sum"><span>Paid ({sale.paymentMethod})</span><span className="num">{inr(sale.amountPaid)}</span></div>
+          <div className={`balance-line ${balanceDue > 0 ? 'owes' : ''}`}>
+            <span>Balance due</span><span className="num">{inr(balanceDue)}</span>
+          </div>
+          <div style={{ marginTop: '0.75rem' }}>
+            <Badge tone={statusTone(sale.paymentStatus)}>
+              {sale.paymentStatus === 'Unpaid' ? 'On credit' : sale.paymentStatus === 'Partial' ? 'Part paid' : 'Paid in full'}
+            </Badge>
+          </div>
+        </div>
       </div>
 
       {balanceDue > 0 && (
-        <div className="no-print">
-          <h3>Record Additional Payment</h3>
-          <input type="number" step="0.01" placeholder="Amount" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} />
-          <button onClick={handleRecordPayment}>Record Payment</button>
-        </div>
+        <form className="card no-print" onSubmit={recordPayment} style={{ marginTop: '1.25rem' }}>
+          <h3 style={{ marginBottom: '0.75rem' }}>Collect payment</h3>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <Field label={`Amount (up to ${inr(balanceDue)})`} className="grow">
+              <input type="number" step="0.01" min="0.01" max={balanceDue} value={amount} onChange={e => setAmount(e.target.value)} required style={{ marginBottom: 0 }} />
+            </Field>
+            <button type="button" className="btn btn-quiet" onClick={() => setAmount(balanceDue.toFixed(2))}>Full balance</button>
+            <button className="btn btn-primary" disabled={saving || !amount}>{saving ? 'Saving…' : 'Record payment'}</button>
+          </div>
+        </form>
       )}
     </div>
   );

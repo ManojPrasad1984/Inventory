@@ -5,6 +5,20 @@ function getToken() {
   return localStorage.getItem('token');
 }
 
+// The API answers errors in several shapes: a plain string, { title }, or ASP.NET validation { errors: {...} }.
+function readError(status, text) {
+  const fallback = `The server rejected the request (${status}).`;
+  if (!text) return fallback;
+  try {
+    const data = JSON.parse(text);
+    if (typeof data === 'string') return data;
+    if (data?.errors) return Object.values(data.errors).flat().join(' ');
+    return data?.detail || data?.message || data?.title || fallback;
+  } catch {
+    return text.length < 300 ? text : fallback;
+  }
+}
+
 async function request(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth) {
@@ -12,26 +26,30 @@ async function request(path, { method = 'GET', body, auth = true } = {}) {
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(`Cannot reach the server at ${BASE_URL}. Check that the API is running and your internet connection is on.`);
+  }
 
-  if (res.status === 401) {
+  // A 401 on a protected call means the login expired. On the login form it just means a wrong password.
+  if (res.status === 401 && auth) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = '/login';
-    throw new Error('Session expired. Please log in again.');
+    throw new Error('Your session expired. Please sign in again.');
   }
 
   if (!res.ok) {
-    let message = `Request failed (${res.status})`;
-    try {
-      const data = await res.json();
-      message = data?.title || data?.message || (typeof data === 'string' ? data : message);
-    } catch { /* ignore parse errors */ }
-    throw new Error(message);
+    const text = await res.text().catch(() => '');
+    if (res.status === 403) throw new Error('Your account is not allowed to do this. Ask the owner.');
+    if (res.status === 500) throw new Error(readError(res.status, text) || 'The server hit an error. Try again.');
+    throw new Error(readError(res.status, text));
   }
 
   if (res.status === 204) return null;

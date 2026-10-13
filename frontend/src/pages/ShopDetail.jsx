@@ -1,85 +1,107 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { api } from '../api';
+import Icon from '../components/Icon';
+import { Badge, EmptyState, ErrorNote, Field, Loading, PageHeader, useUi } from '../components/ui';
+import { fmtDateTime, inr } from '../utils/format';
 
 export default function ShopDetail() {
   const { id } = useParams();
+  const { toast } = useUi();
   const [shop, setShop] = useState(null);
-  const [ledger, setLedger] = useState([]);
+  const [ledger, setLedger] = useState(null);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentNotes, setPaymentNotes] = useState('');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
 
   function load() {
+    setError('');
     api.getShop(id).then(setShop).catch(err => setError(err.message));
-    api.getShopLedger(id).then(setLedger).catch(err => setError(err.message));
+    api.getShopLedger(id).then(setLedger).catch(err => { setError(err.message); setLedger([]); });
   }
-
-  useEffect(() => { load(); }, [id]);
+  useEffect(load, [id]);
 
   async function handlePayment(e) {
     e.preventDefault();
-    setError(''); setSuccess('');
+    setSaving(true);
     try {
-      await api.recordShopPayment(id, Number(paymentAmount), paymentNotes || null);
-      setSuccess('Payment recorded.');
-      setPaymentAmount(''); setPaymentNotes('');
+      await api.recordShopPayment(id, Number(amount), notes || null);
+      toast(`Received ${inr(Number(amount))} from ${shop.name}.`);
+      setAmount(''); setNotes('');
       load();
     } catch (err) {
-      setError(err.message);
+      toast(err.message, { type: 'error' });
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (!shop) return <p>Loading…</p>;
+  if (error && !shop) return <ErrorNote onRetry={load}>{error}</ErrorNote>;
+  if (!shop) return <Loading />;
+
+  const owes = shop.outstandingBalance > 0;
 
   return (
     <div>
-      <h1>{shop.name}</h1>
-      <p>{shop.phone} {shop.address && `• ${shop.address}`}</p>
+      <PageHeader
+        title={shop.name}
+        subtitle={[shop.phone, shop.address].filter(Boolean).join(' · ')}
+        back={{ to: '/shops', label: 'All shops' }}
+      />
+      <ErrorNote>{error}</ErrorNote>
 
-      {error && <div className="error-banner">{error}</div>}
-      {success && <div className="success-banner">{success}</div>}
-
-      <div className="stat-grid">
-        <div className={`stat-card ${shop.outstandingBalance > 0 ? 'stat-card-warn' : ''}`}>
-          <div className="stat-value">₹{shop.outstandingBalance.toFixed(2)}</div>
-          <div className="stat-label">Outstanding Balance</div>
+      <div className="kpis">
+        <div className={`kpi ${owes ? 'kpi-warn kpi-bad' : ''}`}>
+          <div className="kpi-value num">{inr(shop.outstandingBalance)}</div>
+          <div className="kpi-label">{owes ? 'Owes you' : 'Nothing due'}</div>
         </div>
         {shop.creditLimit != null && (
-          <div className="stat-card">
-            <div className="stat-value">₹{shop.creditLimit.toFixed(2)}</div>
-            <div className="stat-label">Credit Limit</div>
+          <div className="kpi">
+            <div className="kpi-value num">{inr(shop.creditLimit, 0)}</div>
+            <div className="kpi-label">Credit limit</div>
           </div>
         )}
       </div>
 
-      <h3>Record Payment</h3>
-      <form onSubmit={handlePayment} className="form-row">
-        <input type="number" step="0.01" placeholder="Amount" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} required />
-        <input placeholder="Notes (optional)" value={paymentNotes} onChange={e => setPaymentNotes(e.target.value)} />
-        <button type="submit">Record Payment</button>
+      <form className="card" onSubmit={handlePayment} style={{ marginBottom: '1.25rem' }}>
+        <h3 style={{ marginBottom: '0.75rem' }}>Collect a payment</h3>
+        <div className="row" style={{ alignItems: 'flex-end' }}>
+          <Field label="Amount received (₹)">
+            <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required style={{ width: 170, marginBottom: 0 }} />
+          </Field>
+          <Field label="Note (optional)" className="grow">
+            <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Cash, UPI reference…" style={{ marginBottom: 0 }} />
+          </Field>
+          {owes && <button type="button" className="btn btn-quiet" onClick={() => setAmount(String(shop.outstandingBalance))}>Full balance</button>}
+          <button className="btn btn-primary" disabled={saving || !amount}><Icon name="wallet" /> {saving ? 'Saving…' : 'Record payment'}</button>
+        </div>
       </form>
 
-      <h3>Ledger</h3>
-      <table className="data-table">
-        <thead><tr><th>Date</th><th>Type</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Notes</th></tr></thead>
-        <tbody>
-          {ledger.map(l => (
-            <tr key={l.id}>
-              <td>{new Date(l.entryDate).toLocaleString()}</td>
-              <td>{l.type}</td>
-              <td>{l.debit > 0 ? `₹${l.debit.toFixed(2)}` : ''}</td>
-              <td>{l.credit > 0 ? `₹${l.credit.toFixed(2)}` : ''}</td>
-              <td>₹{l.runningBalance.toFixed(2)}</td>
-              <td>{l.notes}</td>
-            </tr>
-          ))}
-          {ledger.length === 0 && <tr><td colSpan={6}>No transactions yet.</td></tr>}
-        </tbody>
-      </table>
-
-      <p><Link to="/shops">← Back to Shops</Link></p>
+      <div className="card card-flush">
+        <div className="card-head" style={{ padding: '1.1rem 1.25rem 0', marginBottom: '0.75rem' }}><h3>Ledger</h3></div>
+        {ledger === null ? <Loading /> : ledger.length === 0 ? (
+          <EmptyState icon="receipt" title="No transactions yet">Sales and payments for this shop will be listed here.</EmptyState>
+        ) : (
+          <div className="table-wrap">
+            <table className="table responsive">
+              <thead><tr><th>When</th><th>What</th><th className="right">Billed</th><th className="right">Received</th><th className="right">Balance</th><th>Note</th></tr></thead>
+              <tbody>
+                {ledger.map(l => (
+                  <tr key={l.id}>
+                    <td data-label="When">{fmtDateTime(l.entryDate)}</td>
+                    <td data-label="What"><Badge tone={l.type === 'Sale' ? 'info' : 'good'}>{l.type === 'Sale' ? 'Sale' : 'Payment'}</Badge></td>
+                    <td data-label="Billed" className="num right">{l.debit > 0 ? inr(l.debit) : ''}</td>
+                    <td data-label="Received" className="num right">{l.credit > 0 ? inr(l.credit) : ''}</td>
+                    <td data-label="Balance" className="num right strong">{inr(l.runningBalance)}</td>
+                    <td data-label="Note" className="muted">{l.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

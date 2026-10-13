@@ -13,6 +13,11 @@ builder.Services.AddControllers()
     {
         // Serialize enums (PaymentStatus, PaymentMethod) as strings like "Paid" / "UPI" instead of numbers
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        // EF Core fixes up navigation properties in both directions (Trip.LoadItems[i].Trip, VehicleSale.Items[i].VehicleSale...).
+        // Without this, serializing those entities throws a "possible object cycle" JsonException -> HTTP 500. That broke
+        // opening a trip and made a successful sale look like a failure (the row was saved, the response then crashed).
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
