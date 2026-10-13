@@ -72,6 +72,7 @@ export default function TripDetail() {
 
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
   const shop = shops.find(s => s.id === Number(shopId));
+  const noGodownStock = products.every(p => p.godownStockUnits <= 0);
 
   if (error && !data) return <ErrorNote onRetry={load}>{error}</ErrorNote>;
   if (!data || !tab) return <Loading />;
@@ -442,7 +443,19 @@ export default function TripDetail() {
       )}
 
       {/* ---------------- LOAD ---------------- */}
-      {tab === 'load' && isOpen && (
+      {tab === 'load' && isOpen && noGodownStock && (
+        <div className="card">
+          <EmptyState icon="inbox" title={products.length === 0 ? 'No products yet' : 'The godown is empty'}
+            action={products.length === 0
+              ? <Link className="btn btn-primary" to="/products">Add products</Link>
+              : <Link className="btn btn-primary" to="/purchases">Record a purchase</Link>}>
+            {products.length === 0
+              ? 'Add the products you sell first, then record a purchase to bring stock into the godown.'
+              : 'Stock reaches the godown through a purchase from your supplier. Record one, then come back to load the vehicle.'}
+          </EmptyState>
+        </div>
+      )}
+      {tab === 'load' && isOpen && !noGodownStock && (
         <form className="card" onSubmit={handleLoad}>
           <div className="card-head">
             <div>
@@ -451,13 +464,6 @@ export default function TripDetail() {
             </div>
           </div>
           <ErrorNote>{loadError}</ErrorNote>
-
-          {products.every(p => p.godownStockUnits <= 0) && (
-            <div className="note note-warn">
-              <Icon name="alert" size={18} />
-              <span>The godown has no stock. <Link to="/purchases">Record a purchase</Link> first.</span>
-            </div>
-          )}
 
           {loadLines.map((line, idx) => {
             const p = productById[Number(line.productId)];
