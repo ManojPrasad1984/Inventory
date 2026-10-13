@@ -3,14 +3,16 @@ namespace InventoryBilling.Api.DTOs;
 public record ProductUpsertRequest(
     string Name,
     string? Sku,
-    string? Description,
-    string? Category,
-    string Unit,
-    decimal PurchasePrice,
-    decimal SellingPrice,
+    string? BrandCategory,
+    string? PackSize,
+    int UnitsPerCase,
+    decimal MrpPerUnit,
+    decimal PurchasePricePerCase,
+    decimal SellingPricePerCase,
     decimal TaxPercent,
-    int StockQuantity,
-    int LowStockThreshold
+    int GodownStockUnits,
+    int LowStockThresholdUnits
 );
 
-public record StockAdjustRequest(int Delta, string? Reason);
+// Manual correction only (breakage, stock count fix) - normal stock movement happens via Purchases/Trips.
+public record StockAdjustRequest(int DeltaUnits, string? Reason);

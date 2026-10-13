@@ -14,13 +14,16 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="navbar-brand">{user.shopName || 'My Shop'}</div>
+      <div className="navbar-brand">{user.shopName || 'My Distribution'}</div>
       <div className="navbar-links">
         <Link to="/">Dashboard</Link>
-        <Link to="/billing">New Bill</Link>
-        <Link to="/invoices">Invoices</Link>
+        <Link to="/trips">Trips</Link>
+        <Link to="/sales">Sales</Link>
         <Link to="/products">Products</Link>
-        <Link to="/customers">Customers</Link>
+        <Link to="/purchases">Purchases</Link>
+        <Link to="/vehicles">Vehicles</Link>
+        <Link to="/shops">Shops</Link>
+        <Link to="/suppliers">Suppliers</Link>
       </div>
       <div className="navbar-user">
         <span>{user.fullName}</span>

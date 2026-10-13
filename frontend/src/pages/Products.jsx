@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 const emptyForm = {
-  name: '', sku: '', description: '', category: '', unit: 'pcs',
-  purchasePrice: 0, sellingPrice: 0, taxPercent: 0, stockQuantity: 0, lowStockThreshold: 5
+  name: '', sku: '', brandCategory: '', packSize: '', unitsPerCase: 24,
+  mrpPerUnit: 0, purchasePricePerCase: 0, sellingPricePerCase: 0, taxPercent: 0,
+  godownStockUnits: 0, lowStockThresholdUnits: 24
 };
 
 export default function Products() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -16,13 +19,14 @@ export default function Products() {
 
   async function load() {
     try {
-      setProducts(await api.getProducts(search));
+      setProducts(await api.getProducts(search, false, categoryFilter));
     } catch (err) {
       setError(err.message);
     }
   }
 
-  useEffect(() => { load(); }, [search]);
+  useEffect(() => { load(); }, [search, categoryFilter]);
+  useEffect(() => { api.getProductCategories().then(setCategories).catch(() => {}); }, []);
 
   function update(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -31,9 +35,10 @@ export default function Products() {
   function startEdit(p) {
     setEditingId(p.id);
     setForm({
-      name: p.name, sku: p.sku || '', description: p.description || '', category: p.category || '',
-      unit: p.unit, purchasePrice: p.purchasePrice, sellingPrice: p.sellingPrice, taxPercent: p.taxPercent,
-      stockQuantity: p.stockQuantity, lowStockThreshold: p.lowStockThreshold
+      name: p.name, sku: p.sku || '', brandCategory: p.brandCategory || '', packSize: p.packSize || '',
+      unitsPerCase: p.unitsPerCase, mrpPerUnit: p.mrpPerUnit, purchasePricePerCase: p.purchasePricePerCase,
+      sellingPricePerCase: p.sellingPricePerCase, taxPercent: p.taxPercent,
+      godownStockUnits: p.godownStockUnits, lowStockThresholdUnits: p.lowStockThresholdUnits
     });
     setShowForm(true);
   }
@@ -50,11 +55,13 @@ export default function Products() {
     try {
       const payload = {
         ...form,
-        purchasePrice: Number(form.purchasePrice),
-        sellingPrice: Number(form.sellingPrice),
+        unitsPerCase: Number(form.unitsPerCase),
+        mrpPerUnit: Number(form.mrpPerUnit),
+        purchasePricePerCase: Number(form.purchasePricePerCase),
+        sellingPricePerCase: Number(form.sellingPricePerCase),
         taxPercent: Number(form.taxPercent),
-        stockQuantity: Number(form.stockQuantity),
-        lowStockThreshold: Number(form.lowStockThreshold),
+        godownStockUnits: Number(form.godownStockUnits),
+        lowStockThresholdUnits: Number(form.lowStockThresholdUnits),
       };
       if (editingId) {
         await api.updateProduct(editingId, payload);
@@ -78,6 +85,8 @@ export default function Products() {
     }
   }
 
+  const casesInStock = (p) => (p.unitsPerCase > 0 ? (p.godownStockUnits / p.unitsPerCase).toFixed(1) : p.godownStockUnits);
+
   return (
     <div>
       <div className="page-header">
@@ -87,35 +96,38 @@ export default function Products() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <input
-        className="search-box"
-        placeholder="Search by name or SKU…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      <div className="form-row">
+        <input className="search-box" placeholder="Search by name or SKU…" value={search} onChange={e => setSearch(e.target.value)} />
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ maxWidth: 220 }}>
+          <option value="">All categories</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
 
       <table className="data-table">
         <thead>
           <tr>
-            <th>Name</th><th>SKU</th><th>Category</th><th>Price</th><th>Tax %</th><th>Stock</th><th></th>
+            <th>Name</th><th>Category</th><th>Pack</th><th>Units/Case</th>
+            <th>Case Price (sell)</th><th>MRP/Unit</th><th>Godown Stock</th><th></th>
           </tr>
         </thead>
         <tbody>
           {products.map(p => (
-            <tr key={p.id} className={p.stockQuantity <= p.lowStockThreshold ? 'row-warn' : ''}>
+            <tr key={p.id} className={p.godownStockUnits <= p.lowStockThresholdUnits ? 'row-warn' : ''}>
               <td>{p.name}</td>
-              <td>{p.sku}</td>
-              <td>{p.category}</td>
-              <td>₹{p.sellingPrice.toFixed(2)}</td>
-              <td>{p.taxPercent}%</td>
-              <td>{p.stockQuantity} {p.unit}</td>
+              <td>{p.brandCategory}</td>
+              <td>{p.packSize}</td>
+              <td>{p.unitsPerCase}</td>
+              <td>₹{p.sellingPricePerCase.toFixed(2)}</td>
+              <td>₹{p.mrpPerUnit.toFixed(2)}</td>
+              <td>{p.godownStockUnits} units ({casesInStock(p)} cases)</td>
               <td>
                 <button onClick={() => startEdit(p)}>Edit</button>
                 <button onClick={() => handleDelete(p.id)} className="btn-danger">Delete</button>
               </td>
             </tr>
           ))}
-          {products.length === 0 && <tr><td colSpan={7}>No products yet.</td></tr>}
+          {products.length === 0 && <tr><td colSpan={8}>No products yet.</td></tr>}
         </tbody>
       </table>
 
@@ -124,39 +136,57 @@ export default function Products() {
           <form className="modal-card" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h2>{editingId ? 'Edit Product' : 'Add Product'}</h2>
             <label>Name</label>
-            <input value={form.name} onChange={e => update('name', e.target.value)} required />
-            <label>SKU</label>
-            <input value={form.sku} onChange={e => update('sku', e.target.value)} />
-            <label>Category</label>
-            <input value={form.category} onChange={e => update('category', e.target.value)} />
-            <label>Unit (pcs, kg, ltr…)</label>
-            <input value={form.unit} onChange={e => update('unit', e.target.value)} />
+            <input value={form.name} onChange={e => update('name', e.target.value)} placeholder="e.g. 250 ml CSD Cock Zero" required />
             <div className="form-row">
               <div>
-                <label>Purchase Price</label>
-                <input type="number" step="0.01" value={form.purchasePrice} onChange={e => update('purchasePrice', e.target.value)} />
+                <label>Brand Category</label>
+                <input value={form.brandCategory} onChange={e => update('brandCategory', e.target.value)} placeholder="SODA, CSD PET, CAN…" />
               </div>
               <div>
-                <label>Selling Price</label>
-                <input type="number" step="0.01" value={form.sellingPrice} onChange={e => update('sellingPrice', e.target.value)} required />
+                <label>Pack Size</label>
+                <input value={form.packSize} onChange={e => update('packSize', e.target.value)} placeholder="250 ml" />
               </div>
             </div>
+            <label>SKU</label>
+            <input value={form.sku} onChange={e => update('sku', e.target.value)} />
+
+            <div className="form-row">
+              <div>
+                <label>Units per Case</label>
+                <input type="number" min="1" value={form.unitsPerCase} onChange={e => update('unitsPerCase', e.target.value)} required />
+              </div>
+              <div>
+                <label>MRP per Unit (₹)</label>
+                <input type="number" step="0.01" value={form.mrpPerUnit} onChange={e => update('mrpPerUnit', e.target.value)} />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div>
+                <label>Purchase Price / Case (₹)</label>
+                <input type="number" step="0.01" value={form.purchasePricePerCase} onChange={e => update('purchasePricePerCase', e.target.value)} />
+              </div>
+              <div>
+                <label>Selling Price / Case (₹)</label>
+                <input type="number" step="0.01" value={form.sellingPricePerCase} onChange={e => update('sellingPricePerCase', e.target.value)} required />
+              </div>
+            </div>
+
             <div className="form-row">
               <div>
                 <label>Tax %</label>
                 <input type="number" step="0.01" value={form.taxPercent} onChange={e => update('taxPercent', e.target.value)} />
               </div>
               <div>
-                <label>Stock Qty</label>
-                <input type="number" value={form.stockQuantity} onChange={e => update('stockQuantity', e.target.value)} />
+                <label>Godown Stock (units)</label>
+                <input type="number" value={form.godownStockUnits} onChange={e => update('godownStockUnits', e.target.value)} />
               </div>
               <div>
-                <label>Low Stock Alert At</label>
-                <input type="number" value={form.lowStockThreshold} onChange={e => update('lowStockThreshold', e.target.value)} />
+                <label>Low Stock Alert At (units)</label>
+                <input type="number" value={form.lowStockThresholdUnits} onChange={e => update('lowStockThresholdUnits', e.target.value)} />
               </div>
             </div>
-            <label>Description</label>
-            <textarea value={form.description} onChange={e => update('description', e.target.value)} />
+
             <div className="modal-actions">
               <button type="button" onClick={() => setShowForm(false)}>Cancel</button>
               <button type="submit">{editingId ? 'Save Changes' : 'Add Product'}</button>

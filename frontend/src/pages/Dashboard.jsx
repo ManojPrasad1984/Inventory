@@ -19,34 +19,43 @@ export default function Dashboard() {
       <div className="stat-grid">
         <StatCard label="Today's Sales" value={`₹${summary.todaySales.toFixed(2)}`} />
         <StatCard label="This Month" value={`₹${summary.monthSales.toFixed(2)}`} />
-        <StatCard label="Invoices Today" value={summary.todayInvoiceCount} />
-        <StatCard label="Outstanding" value={`₹${summary.totalOutstanding.toFixed(2)}`} warn={summary.totalOutstanding > 0} />
+        <StatCard label="Sales Today" value={summary.todaySaleCount} />
+        <StatCard label="Outstanding (Shops)" value={`₹${summary.totalOutstanding.toFixed(2)}`} warn={summary.totalOutstanding > 0} />
         <StatCard label="Low Stock Items" value={summary.lowStockCount} warn={summary.lowStockCount > 0} />
+        <StatCard label="Open Trips" value={summary.openTripsCount} />
+        <StatCard label="Today's Purchases" value={`₹${summary.todayPurchases.toFixed(2)}`} />
         <StatCard label="Total Products" value={summary.totalProducts} />
-        <StatCard label="Total Customers" value={summary.totalCustomers} />
+        <StatCard label="Total Shops" value={summary.totalShops} />
       </div>
 
       {summary.lowStockCount > 0 && (
         <div className="alert-banner">
-          ⚠ {summary.lowStockCount} product(s) are low on stock. <Link to="/products">Review stock</Link>
+          ⚠ {summary.lowStockCount} product(s) are low on godown stock. <Link to="/products">Review stock</Link>
         </div>
       )}
 
-      <h2>Top Selling Products</h2>
+      {summary.openTripsCount > 0 && (
+        <div className="alert-banner">
+          🚚 {summary.openTripsCount} vehicle(s) currently out on a round: {summary.openTrips.map(t => t.vehicleNumber).join(', ')}.{' '}
+          <Link to="/trips">View trips</Link>
+        </div>
+      )}
+
+      <h2>Top Selling Products (This Month)</h2>
       <table className="data-table">
         <thead>
-          <tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr>
+          <tr><th>Product</th><th>Units Sold</th><th>Revenue</th></tr>
         </thead>
         <tbody>
           {summary.topProducts.map((p, i) => (
             <tr key={i}>
               <td>{p.productName}</td>
-              <td>{p.totalQty}</td>
+              <td>{p.totalQtyUnits}</td>
               <td>₹{p.revenue.toFixed(2)}</td>
             </tr>
           ))}
           {summary.topProducts.length === 0 && (
-            <tr><td colSpan={3}>No sales yet — create your first invoice.</td></tr>
+            <tr><td colSpan={3}>No sales yet — start a trip and record your first sale.</td></tr>
           )}
         </tbody>
       </table>

@@ -20,27 +20,38 @@ public class DashboardController : ControllerBase
         var todayStart = DateTime.UtcNow.Date;
         var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
 
-        var todaySales = await _db.Invoices
-            .Where(i => i.InvoiceDate >= todayStart)
-            .SumAsync(i => (decimal?)i.TotalAmount) ?? 0;
+        var todaySales = await _db.VehicleSales
+            .Where(s => s.SaleDate >= todayStart)
+            .SumAsync(s => (decimal?)s.TotalAmount) ?? 0;
 
-        var monthSales = await _db.Invoices
-            .Where(i => i.InvoiceDate >= monthStart)
-            .SumAsync(i => (decimal?)i.TotalAmount) ?? 0;
+        var monthSales = await _db.VehicleSales
+            .Where(s => s.SaleDate >= monthStart)
+            .SumAsync(s => (decimal?)s.TotalAmount) ?? 0;
 
-        var todayInvoiceCount = await _db.Invoices.CountAsync(i => i.InvoiceDate >= todayStart);
+        var todaySaleCount = await _db.VehicleSales.CountAsync(s => s.SaleDate >= todayStart);
 
-        var totalOutstanding = await _db.Customers.SumAsync(c => (decimal?)c.OutstandingBalance) ?? 0;
+        var totalOutstanding = await _db.Shops.SumAsync(s => (decimal?)s.OutstandingBalance) ?? 0;
 
         var lowStockCount = await _db.Products
-            .CountAsync(p => p.IsActive && p.StockQuantity <= p.LowStockThreshold);
+            .CountAsync(p => p.IsActive && p.GodownStockUnits <= p.LowStockThresholdUnits);
 
         var totalProducts = await _db.Products.CountAsync(p => p.IsActive);
-        var totalCustomers = await _db.Customers.CountAsync();
+        var totalShops = await _db.Shops.CountAsync(s => s.IsActive);
 
-        var topProducts = await _db.InvoiceItems
+        var openTrips = await _db.Trips
+            .Include(t => t.Vehicle)
+            .Where(t => t.Status == TripStatus.Open)
+            .Select(t => new { t.Id, t.TripNumber, VehicleNumber = t.Vehicle!.VehicleNumber, t.TripDate })
+            .ToListAsync();
+
+        var todayPurchases = await _db.Purchases
+            .Where(p => p.InvoiceDate >= todayStart)
+            .SumAsync(p => (decimal?)p.TotalAmount) ?? 0;
+
+        var topProducts = await _db.VehicleSaleItems
+            .Where(i => i.VehicleSale!.SaleDate >= monthStart)
             .GroupBy(ii => ii.ProductName)
-            .Select(g => new { productName = g.Key, totalQty = g.Sum(x => x.Quantity), revenue = g.Sum(x => x.LineTotal) })
+            .Select(g => new { productName = g.Key, totalQtyUnits = g.Sum(x => x.QuantityUnits), revenue = g.Sum(x => x.LineTotal) })
             .OrderByDescending(x => x.revenue)
             .Take(5)
             .ToListAsync();
@@ -49,11 +60,14 @@ public class DashboardController : ControllerBase
         {
             todaySales,
             monthSales,
-            todayInvoiceCount,
+            todaySaleCount,
             totalOutstanding,
             lowStockCount,
             totalProducts,
-            totalCustomers,
+            totalShops,
+            openTripsCount = openTrips.Count,
+            openTrips,
+            todayPurchases,
             topProducts
         });
     }
@@ -62,8 +76,8 @@ public class DashboardController : ControllerBase
     public async Task<IActionResult> GetLowStock()
     {
         var items = await _db.Products
-            .Where(p => p.IsActive && p.StockQuantity <= p.LowStockThreshold)
-            .OrderBy(p => p.StockQuantity)
+            .Where(p => p.IsActive && p.GodownStockUnits <= p.LowStockThresholdUnits)
+            .OrderBy(p => p.GodownStockUnits)
             .ToListAsync();
         return Ok(items);
     }
