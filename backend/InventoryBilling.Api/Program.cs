@@ -101,11 +101,27 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// In development the React app calls http://localhost:5000 directly. Redirecting that to https would make the
+// browser's CORS preflight fail, so HTTPS redirection is only applied outside Development (Azure enforces HTTPS too).
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// The API has no page at "/", so send developers to Swagger and give anything else a small status response
+// instead of a bare 404.
+app.MapGet("/", (IWebHostEnvironment env) =>
+{
+    if (env.IsDevelopment())
+        return Results.Redirect("/swagger");
+
+    return Results.Ok(new { name = "Inventory & Billing API", status = "running" });
+});
 
 // Simple health check endpoint (useful for Azure App Service warm-up pings)
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }));
